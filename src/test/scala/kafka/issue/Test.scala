@@ -65,7 +65,6 @@ object Implicits {
             b <- f(x)
           } yield xs.enqueue(b)
       }
-
   }
 
 }
@@ -76,6 +75,27 @@ trait Kafka {
   val containerName = s"kafka-${Random.nextInt(Int.MaxValue)}"
   val networkName = s"waves-${Random.nextInt(Int.MaxValue)}"
   val topicName = "test_topic"
+
+  val producerProps: Properties = {
+    val props = new Properties()
+    props.put("bootstrap.servers", "localhost:9092")
+    val stringSerializerName = classOf[StringSerializer].getName
+    props.put("key.serializer", stringSerializerName)
+    props.put("value.serializer", stringSerializerName)
+    props.put("retries", "0")
+    props.put("request.timeout.ms", "100")
+    props.put("delivery.timeout.ms", "100")
+    props.put("max.in.flight.requests.per.connection", "1")
+    props
+  }
+  val consumerProps: Properties = {
+    val props = new Properties()
+    props.put("group.id", "test")
+    props.put("key.deserializer", classOf[StringDeserializer])
+    props.put("value.deserializer", classOf[StringDeserializer])
+    props.put("bootstrap.servers", "localhost:9092")
+    props
+  }
 
   val network: NetworkImpl =
     Network
@@ -130,17 +150,16 @@ trait Kafka {
 
     println("--- Kafka is connected to the network ---")
   }
-
 }
 
 class Test extends AnyFlatSpec with Kafka {
-  import Implicits.FutureCompanionOps
 
+  import Implicits.FutureCompanionOps
   import scala.concurrent.ExecutionContext.Implicits.global
 
   @volatile var lastSent = 0
 
-  def sendMessages(p: KafkaProducer[Null, String], t: String, c: Int) = {
+  def sendMessages(p: KafkaProducer[Null, String], t: String, c: Int): Future[Queue[Unit]] = {
     println("--- Start sending messages to kafka ---")
 
     val messages = for {i <- 1 to c} yield new ProducerRecord(t, null, i.toString)
@@ -161,28 +180,7 @@ class Test extends AnyFlatSpec with Kafka {
     val topicPartition = new TopicPartition(topicName, 0)
     val topicPartitions: util.List[TopicPartition] = java.util.Collections.singletonList(topicPartition)
 
-    var offset = 0
-
-    val producerProps: Properties = {
-      val props = new Properties()
-      props.put("bootstrap.servers", "localhost:9092")
-      val stringSerializerName = classOf[StringSerializer].getName
-      props.put("key.serializer", stringSerializerName)
-      props.put("value.serializer", stringSerializerName)
-      props.put("retries", "0")
-      props.put("request.timeout.ms", "100")
-      props.put("delivery.timeout.ms", "100")
-      props.put("max.in.flight.requests.per.connection", "1")
-      props
-    }
-    val consumerProps: Properties = {
-      val props = new Properties()
-      props.put("group.id", "test")
-      props.put("key.deserializer", classOf[StringDeserializer])
-      props.put("value.deserializer", classOf[StringDeserializer])
-      props.put("bootstrap.servers", "localhost:9092")
-      props
-    }
+    @volatile var offset = 0
 
     val producer = new KafkaProducer[Null, String](producerProps)
     val consumer = new KafkaConsumer[Null, String](consumerProps)
@@ -195,6 +193,7 @@ class Test extends AnyFlatSpec with Kafka {
     disconnectKafkaFromNetwork()
 
     Await.ready(sm, 30 seconds)
+    println(s"Last message sent without error: [$lastSent]")
 
     connectKafkaToNetwork()
 
@@ -205,7 +204,7 @@ class Test extends AnyFlatSpec with Kafka {
     while (offset <= lastSent) {
       val results = consumer.poll(2000).asScala
       for (r <- results) {
-        println(s"Consumed message: ${r.value()}")
+        println(s"Consumed message: [${r.value()}]")
         offset += 1
       }
     }
