@@ -13,7 +13,7 @@ max.in.flight.requests.per.connection = 1
 
 ### HOW TO RUN:
 
-Run command `sbt "compile;testOnly"` from th project root.
+Run command `sbt "compile;testOnly"` from the project root.
 
 ### LOG:
 ```
