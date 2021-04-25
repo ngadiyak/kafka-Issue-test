@@ -1,9 +1,9 @@
-###### CASE:
+### CASE:
 
 If Kafka has been disconnected from the network when producer is sending messages to the topic (with small delay between messages and without retries) 
 there is a situation we reproduce in the test. Producer gets an exception and Kafka saves expired message.
 
-Producer's config:
+**Producer's config:**
 ```
 retries = 0
 request.timeout.ms = 100
@@ -11,12 +11,11 @@ delivery.timeout.ms = 100
 max.in.flight.requests.per.connection = 1
 ```
 
-
-###### HOW TO RUN:
+### HOW TO RUN:
 
 Run command `sbt "compile;testOnly"` from th project root.
 
-###### LOG:
+### LOG:
 ```
 [info] Test:
 [info] Kafka
@@ -62,7 +61,4 @@ Consumed message: 4
 [error]         kafka.issue.Test
 [error] (Test / testOnly) sbt.TestsFailedException: Tests unsuccessful
 [error] Total time: 37 s, completed Apr 25, 2021 12:07:30 PM
-
-
 ```
-
