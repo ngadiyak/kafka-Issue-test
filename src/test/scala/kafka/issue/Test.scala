@@ -1,9 +1,10 @@
-package dex
+package kafka.issue
 
 import com.dimafeng.testcontainers.KafkaContainer
 import com.github.dockerjava.api.command.CreateNetworkCmd
 import com.github.dockerjava.api.model.{NetworkSettings, PortBinding}
-import dex.Implicits.FutureCompanionOps
+import io.netty.util.{HashedWheelTimer, Timer}
+import GlobalTimer.TimerOpsImplicits
 import org.apache.kafka.clients.consumer.KafkaConsumer
 import org.apache.kafka.clients.producer.{KafkaProducer, ProducerRecord, RecordMetadata}
 import org.apache.kafka.common.TopicPartition
@@ -16,14 +17,62 @@ import org.testcontainers.containers.Network.NetworkImpl
 import java.util
 import java.util.Properties
 import scala.collection.JavaConverters._
-import scala.concurrent.ExecutionContext.Implicits.global
-import scala.concurrent.duration.DurationInt
-import scala.concurrent.{Await, Future, Promise}
+import scala.collection.immutable.Queue
+import scala.concurrent.duration.{DurationInt, FiniteDuration}
+import scala.concurrent.{Await, ExecutionContext, Future, Promise}
 import scala.language.postfixOps
-import scala.util.Random
+import scala.util.control.NonFatal
+import scala.util.{Random, Success, Try}
+
+object GlobalTimer {
+
+  val instance: Timer = new HashedWheelTimer()
+
+  sys.addShutdownHook {
+    instance.stop()
+  }
+
+  implicit class TimerOpsImplicits(val timer: Timer) extends AnyVal {
+
+    def schedule[A](f: => Future[A], delay: FiniteDuration): Future[A] = {
+      val p = Promise[A]()
+      try timer.newTimeout(_ => p.completeWith(f), delay.length, delay.unit)
+      catch {
+        case NonFatal(e) => p.failure(e)
+      }
+      p.future
+    }
+
+    def sleep(term: FiniteDuration): Future[Unit] = schedule(Future.successful(()), term)
+  }
+
+}
+
+object Implicits {
+
+  implicit final class FutureOps[T](val self: Future[T]) extends AnyVal {
+    def safe(implicit ec: ExecutionContext): Future[Try[T]] = self.transform(x => Success(x))
+  }
+
+  implicit final class FutureCompanionOps(val self: Future.type) extends AnyVal {
+
+    def inSeries[A, B](xs: Iterable[A])(f: A => Future[B])(implicit ec: ExecutionContext): Future[Queue[B]] =
+      xs.foldLeft(Future.successful(Queue.empty[B])) {
+        case (r, x) =>
+          for {
+            xs <- r
+            _ <- GlobalTimer.instance.timer.sleep(10 millis)
+            b <- f(x)
+          } yield xs.enqueue(b)
+      }
+
+  }
+
+}
 
 
 trait Kafka {
+
   val containerName = s"kafka-${Random.nextInt(Int.MaxValue)}"
   val networkName = s"waves-${Random.nextInt(Int.MaxValue)}"
   val topicName = "test_topic"
@@ -85,6 +134,9 @@ trait Kafka {
 }
 
 class Test extends AnyFlatSpec with Kafka {
+  import Implicits.FutureCompanionOps
+
+  import scala.concurrent.ExecutionContext.Implicits.global
 
   @volatile var lastSent = 0
 
@@ -103,7 +155,7 @@ class Test extends AnyFlatSpec with Kafka {
     }
   }
 
-  "Kafka" should "not t " in {
+  "Kafka" should "not put failed message into the topic" in {
     kafka.start()
 
     val topicPartition = new TopicPartition(topicName, 0)
@@ -135,7 +187,7 @@ class Test extends AnyFlatSpec with Kafka {
     val producer = new KafkaProducer[Null, String](producerProps)
     val consumer = new KafkaConsumer[Null, String](consumerProps)
 
-    val sm = sendMessages(producer, topicName, 30)
+    val sm = sendMessages(producer, topicName, 20)
 
     println("--- Sleep 1 second ---")
     Thread.sleep(1000)

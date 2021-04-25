@@ -10,6 +10,5 @@ libraryDependencies += "com.dimafeng" %% "testcontainers-scala" % "0.38.8" % "te
 libraryDependencies += "org.testcontainers" % "kafka" % "1.15.1"
 libraryDependencies += "org.apache.kafka" % "kafka-clients" % "2.7.0"
 libraryDependencies += "io.netty" % "netty-all" % "4.0.4.Final"
-libraryDependencies += "io.monix" %% "monix" % "3.3.0"
 
 Test / fork := true
